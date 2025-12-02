@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 
 import '../data/repositories/consulta_repository.dart';
 import '../data/repositories/usuario_repository.dart';
@@ -13,79 +15,118 @@ class ConsultaViewModel extends ChangeNotifier {
     required this.usuarioRepository,
   });
 
-  List<Consulta> consultas = [];
   bool loading = false;
   String? erro;
-  bool isAdmin = false; // exposto para a tela saber o perfil
 
-  Future<void> carregarConsultas() async {
-    loading = true;
-    erro = null;
+  /// Dia selecionado na agenda
+  DateTime selectedDate = DateTime.now();
+
+  /// Consultas do dia selecionado
+  List<Consulta> consultasDia = [];
+
+  StreamSubscription<List<Consulta>>? _subscriptionAtual;
+
+  /// Obtém o ID do paciente logado
+  Future<String?> _obterPacienteId() async {
+    final usuario = await usuarioRepository.obterUsuario();
+
+    if (usuario == null) {
+      erro = 'Usuário não encontrado.';
+      notifyListeners();
+      return null;
+    }
+
+    return usuario.id;
+  }
+
+  /// Inicia a escuta das consultas do dia para o usuário logado
+  Future<void> initAgenda() async {
+    final pacienteId = await _obterPacienteId();
+    if (pacienteId == null) return;
+
+    _ouvirConsultasDoDia(pacienteId: pacienteId);
+  }
+
+  /// Troca a data no calendário e atualiza as consultas do dia
+  Future<void> selecionarData(DateTime novaData) async {
+    selectedDate = novaData;
     notifyListeners();
 
-    try {
-      final usuario = await usuarioRepository.obterUsuario();
+    final pacienteId = await _obterPacienteId();
+    if (pacienteId == null) return;
 
-      if (usuario == null) {
-        erro = 'Nenhum usuário logado.';
+    _ouvirConsultasDoDia(pacienteId: pacienteId);
+  }
+
+  void _ouvirConsultasDoDia({required String pacienteId}) {
+    _subscriptionAtual?.cancel();
+
+    final stream = consultaRepository.consultasDoDiaStream(
+      pacienteId: pacienteId,
+      dia: selectedDate,
+    );
+
+    _subscriptionAtual = stream.listen((lista) {
+      consultasDia = lista;
+      notifyListeners();
+    });
+  }
+
+  /// Agenda uma nova consulta para o usuário logado
+  Future<void> agendarConsulta({
+    required String medicoId,
+    required DateTime dataHora,
+  }) async {
+    try {
+      loading = true;
+      erro = null;
+      notifyListeners();
+
+      final pacienteId = await _obterPacienteId();
+      if (pacienteId == null) {
         loading = false;
         notifyListeners();
         return;
       }
 
-      isAdmin = usuario.role == 'ADMIN';
-
-      final resultado = await consultaRepository.listarConsultas(
-        pacienteId: isAdmin ? null : usuario.id,
-        isAdmin: isAdmin,
+      // NÃO deixa agendar para data passada
+      final agora = DateTime.now();
+      final hoje = DateTime(agora.year, agora.month, agora.day);
+      final diaConsulta = DateTime(
+        dataHora.year,
+        dataHora.month,
+        dataHora.day,
       );
 
-      consultas = resultado;
-    } catch (e) {
-      erro = 'Erro ao carregar consultas.';
-    }
-
-    loading = false;
-    notifyListeners();
-  }
-
-  /// Agenda uma nova consulta para o usuário logado
-  Future<bool> agendarConsulta({
-    required String medicoId,
-    required DateTime dataHora,
-  }) async {
-    erro = null;
-    notifyListeners();
-
-    try {
-      final usuario = await usuarioRepository.obterUsuario();
-      if (usuario == null) {
-        erro = 'Nenhum usuário logado.';
+      if (diaConsulta.isBefore(hoje)) {
+        erro = 'Não é possível agendar para uma data passada.';
+        loading = false;
         notifyListeners();
-        return false;
+        return;
       }
 
-      final nova = Consulta(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+      final consulta = Consulta(
+        id: const Uuid().v4(),
         medicoId: medicoId,
-        pacienteId: usuario.id,
+        pacienteId: pacienteId,
         dataHora: dataHora,
       );
 
-      await consultaRepository.adicionarConsulta(nova);
+      await consultaRepository.criarConsulta(consulta);
 
-      // Atualiza lista local (para já aparecer em Consultas Marcadas)
-      consultas = await consultaRepository.listarConsultas(
-        pacienteId: isAdmin ? null : usuario.id,
-        isAdmin: isAdmin,
-      );
-
-      notifyListeners();
-      return true;
+      // Recarrega as consultas do dia selecionado
+      _ouvirConsultasDoDia(pacienteId: pacienteId);
     } catch (e) {
-      erro = 'Erro ao agendar consulta.';
+      erro = 'Erro ao agendar consulta';
+    } finally {
+      loading = false;
       notifyListeners();
-      return false;
     }
+  }
+
+  @override
+  void dispose() {
+    _subscriptionAtual?.cancel();
+    super.dispose();
   }
 }

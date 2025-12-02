@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/app_routes.dart';
 import '../../viewmodels/consulta_view_model.dart';
 
 class AgendaView extends StatefulWidget {
@@ -12,199 +11,278 @@ class AgendaView extends StatefulWidget {
 }
 
 class _AgendaViewState extends State<AgendaView> {
-  DateTime? _dataSelecionada;
-  TimeOfDay? _horaSelecionada;
+  late Map<String, dynamic> medico;
 
-  Future<void> _selecionarData() async {
-    final hoje = DateTime.now();
-    final date = await showDatePicker(
-      context: context,
-      initialDate: hoje,
-      firstDate: hoje,
-      lastDate: DateTime(hoje.year + 1),
-    );
+  final List<String> _horarios = ['09:00', '10:30', '14:00', '16:00'];
+  String? _horarioSelecionado;
 
-    if (date != null) {
-      setState(() {
-        _dataSelecionada = date;
-      });
-    }
-  }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
 
-  Future<void> _selecionarHora() async {
-    final time = await showTimePicker(
-      context: context,
-      initialTime: const TimeOfDay(hour: 9, minute: 0),
-    );
+    medico = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
 
-    if (time != null) {
-      setState(() {
-        _horaSelecionada = time;
-      });
-    }
-  }
-
-  Future<void> _confirmarAgendamento(Map<String, String> medico) async {
-    if (_dataSelecionada == null || _horaSelecionada == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Selecione data e horário para agendar.'),
-        ),
-      );
-      return;
-    }
-
-    final vm = context.read<ConsultaViewModel>();
-
-    final dataHora = DateTime(
-      _dataSelecionada!.year,
-      _dataSelecionada!.month,
-      _dataSelecionada!.day,
-      _horaSelecionada!.hour,
-      _horaSelecionada!.minute,
-    );
-
-    final medicoId = medico['id'] ?? '1';
-
-    final ok = await vm.agendarConsulta(
-      medicoId: medicoId,
-      dataHora: dataHora,
-    );
-
-    if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(vm.erro ?? 'Falha ao agendar consulta.'),
-        ),
-      );
-      return;
-    }
-
-    final data =
-        "${dataHora.day.toString().padLeft(2, '0')}/"
-        "${dataHora.month.toString().padLeft(2, '0')}/"
-        "${dataHora.year}";
-    final hora =
-        "${dataHora.hour.toString().padLeft(2, '0')}:"
-        "${dataHora.minute.toString().padLeft(2, '0')}";
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          "Consulta com ${medico['nome']} agendada para $data às $hora.",
-        ),
-      ),
-    );
-
-    // Vai para a tela de Consultas Marcadas
-    Navigator.pushReplacementNamed(context, AppRoutes.consultas);
+    // Inicia ouvindo as consultas do dia para o usuário logado
+    context.read<ConsultaViewModel>().initAgenda();
   }
 
   @override
   Widget build(BuildContext context) {
-    final medico =
-    ModalRoute.of(context)!.settings.arguments as Map<String, String>?;
+    final vm = context.watch<ConsultaViewModel>();
 
-    final nomeMedico = medico?['nome'] ?? 'Médico';
-    final especialidade = medico?['especialidade'] ?? 'Especialidade';
+    final consultasDoDia = vm.consultasDia;
+    final dataSelecionada = vm.selectedDate;
 
     return Scaffold(
+      backgroundColor: const Color(0xFF050816),
       appBar: AppBar(
-        title: const Text('Agendar Consulta'),
+        backgroundColor: const Color(0xFF0B1020),
+        elevation: 0,
+        title: const Text(
+          'Minha Agenda',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+        ),
         centerTitle: true,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              nomeMedico,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              especialidade,
-              style: const TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-
-            const SizedBox(height: 24),
-
-            const Text(
-              'Selecione a data:',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 8),
-            InkWell(
-              onTap: _selecionarData,
-              child: Container(
-                padding:
-                const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade400),
+            // Cabeçalho com info do médico
+            Row(
+              children: [
+                const CircleAvatar(
+                  radius: 26,
+                  backgroundColor: Color(0xFF2563EB),
+                  child: Icon(Icons.person, color: Colors.white, size: 26),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _dataSelecionada == null
-                          ? 'Toque para escolher a data'
-                          : "${_dataSelecionada!.day.toString().padLeft(2, '0')}/"
-                          "${_dataSelecionada!.month.toString().padLeft(2, '0')}/"
-                          "${_dataSelecionada!.year}",
-                    ),
-                    const Icon(Icons.calendar_today),
-                  ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (medico['nome'] ?? 'Profissional') as String,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        (medico['especialidade'] ?? '') as String,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ),
 
             const SizedBox(height: 20),
 
-            const Text(
-              'Selecione o horário:',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 8),
-            InkWell(
-              onTap: _selecionarHora,
-              child: Container(
-                padding:
-                const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade400),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _horaSelecionada == null
-                          ? 'Toque para escolher o horário'
-                          : "${_horaSelecionada!.hour.toString().padLeft(2, '0')}:"
-                          "${_horaSelecionada!.minute.toString().padLeft(2, '0')}",
-                    ),
-                    const Icon(Icons.access_time),
-                  ],
-                ),
+            // Calendário
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF0B1020),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: CalendarDatePicker(
+                initialDate: dataSelecionada,
+                firstDate: DateTime.now().subtract(const Duration(days: 365)),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+                onDateChanged: (date) {
+                  context.read<ConsultaViewModel>().selecionarData(date);
+                },
               ),
             ),
 
-            const Spacer(),
+            const SizedBox(height: 16),
 
+            const Text(
+              'Horários disponíveis',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _horarios.map((hora) {
+                final selecionado = _horarioSelecionado == hora;
+                return ChoiceChip(
+                  label: Text(hora),
+                  selected: selecionado,
+                  onSelected: (_) {
+                    setState(() {
+                      _horarioSelecionado = hora;
+                    });
+                  },
+                  selectedColor: const Color(0xFF2563EB),
+                  backgroundColor: const Color(0xFF0B1020),
+                  labelStyle: TextStyle(
+                    color: selecionado ? Colors.white : Colors.white70,
+                  ),
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: 16),
+
+            const Text(
+              'Consultas do dia',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            Expanded(
+              child: consultasDoDia.isEmpty
+                  ? const Center(
+                child: Text(
+                  'Nenhuma consulta para este dia.',
+                  style: TextStyle(color: Colors.white54),
+                ),
+              )
+                  : ListView.builder(
+                itemCount: consultasDoDia.length,
+                itemBuilder: (context, index) {
+                  final c = consultasDoDia[index];
+                  final data = c.dataHora;
+                  final horaFormatada =
+                      '${data.hour.toString().padLeft(2, '0')}:${data.minute.toString().padLeft(2, '0')}';
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0B1020),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF22C55E),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.event_available,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Consulta - $horaFormatada',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${data.day.toString().padLeft(2, '0')}/'
+                                    '${data.month.toString().padLeft(2, '0')}/'
+                                    '${data.year}',
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Botão Confirmar agendamento
             SizedBox(
-              width: double.infinity,
+              height: 48,
               child: ElevatedButton(
-                onPressed: medico == null
+                onPressed: (_horarioSelecionado == null || vm.loading)
                     ? null
-                    : () => _confirmarAgendamento(medico),
-                child: const Text(
+                    : () async {
+                  final data = vm.selectedDate;
+                  final partes = _horarioSelecionado!.split(':');
+                  final h = int.parse(partes[0]);
+                  final m = int.parse(partes[1]);
+
+                  final dataHora = DateTime(
+                    data.year,
+                    data.month,
+                    data.day,
+                    h,
+                    m,
+                  );
+
+                  final medicoId =
+                  (medico['id'] ?? medico['nome'] ?? 'medico_teste')
+                      .toString();
+
+                  await vm.agendarConsulta(
+                    medicoId: medicoId,
+                    dataHora: dataHora,
+                  );
+
+                  if (!mounted) return;
+
+                  if (vm.erro != null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(vm.erro!)),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:
+                        Text('Consulta agendada com sucesso!'),
+                      ),
+                    );
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2563EB),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                child: vm.loading
+                    ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor:
+                    AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+                    : const Text(
                   'Confirmar agendamento',
-                  style: TextStyle(fontSize: 18),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
